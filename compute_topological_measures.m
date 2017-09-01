@@ -4,6 +4,13 @@ function tm = compute_topological_measures(x, request, iters)
 % the main function has been implemented by Alessandro Muscoloni.
 % 2017-05-12
 %
+% Reference:
+% "Can local-community-paradigm and epitopological learning enhance
+% our understanding of how local brain connectivity is able to process,
+% learn and memorize chronic pain?"
+% Vaibhav Narula et al., Applied Network Science, 2017, 2:28
+% https://doi.org/10.1007/s41109-017-0048-x
+%
 % the support functions have been either implemented or taken from other
 % sources.
 % for each measure, the support function reports the original source,
@@ -43,11 +50,11 @@ function tm = compute_topological_measures(x, request, iters)
 % iters - structure containing for the stochastic measures
 %         the number of iterations.
 %         if the input is not provided, the default values are:
-%         options.modularity = 100;
-%         options.struct_cons = 100;
-%         options.powerlaw_p = 1000;
-%         options.x_rand = 10;
-%         options.x_latt = 10;
+%         iters.modularity = 100;
+%         iters.struct_cons = 100;
+%         iters.powerlaw_p = 1000;
+%         iters.x_rand = 10;
+%         iters.x_latt = 10;
 
 %%% OUTPUT
 % tm - structure array containing the topological measures.
@@ -82,7 +89,7 @@ else
     end
 end
 
-% check options
+% check iters
 if ~exist('iters', 'var')
     iters = struct();
 else
