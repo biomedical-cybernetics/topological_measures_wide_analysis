@@ -1,8 +1,11 @@
 function tm = compute_topological_measures(x, request, iters)
 
 % code to perform a wide analysis on network topological measures.
-% the main function has been implemented by Alessandro Muscoloni.
-% 2017-05-12
+%
+% Authors:
+% - main code: Alessandro Muscoloni, 2017-05-12
+% - support functions: either implemented or taken from other sources,
+%   indicated at the beginning of the function.
 %
 % Reference:
 % "Can local-community-paradigm and epitopological learning enhance
@@ -11,10 +14,11 @@ function tm = compute_topological_measures(x, request, iters)
 % Vaibhav Narula et al., Applied Network Science, 2017, 2:28
 % https://doi.org/10.1007/s41109-017-0048-x
 %
-% the support functions have been either implemented or taken from other
-% sources.
 % for each measure, the support function reports the original source,
 % please cite the proper reference if you use it.
+%
+% Released under MIT License
+% Copyright (c) 2017 A. Muscoloni, C. V. Cannistraci
 
 %%% INPUT
 % x - adjacency matrix of the network
