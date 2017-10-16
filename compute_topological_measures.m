@@ -194,7 +194,7 @@ for j = 1:length(request)
         case 'EBC'
             if ~isfield(tm, 'EBC')
                 [EBC, BC] = edge_betweenness_bin(x);
-                tm.EBC = mean(EBC(triu(true(size(EBC)),1))); clear EBC;
+                tm.EBC = mean(EBC(x>0)); clear EBC;
                 if any(strcmp('BC', request))
                     tm.BC = mean(BC); clear BC;
                 end
@@ -205,7 +205,7 @@ for j = 1:length(request)
                 [EBC, BC] = edge_betweenness_bin(x);
                 tm.BC = mean(BC); clear BC;
                 if any(strcmp('EBC', request))
-                    tm.EBC = mean(EBC(triu(true(size(EBC)),1))); clear EBC;
+                    tm.EBC = mean(EBC(x>0)); clear EBC;
                 end
             end
             
