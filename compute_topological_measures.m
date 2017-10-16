@@ -37,7 +37,7 @@ function tm = compute_topological_measures(x, request, iters)
 %           EBC - edge betweenness centrality
 %           BC - node betweenness centrality
 %           radiality - radiality
-%           LCP_corr - Local Community Paradigm correlation
+%           LCPcorr - Local Community Paradigm correlation
 %           assortativity - assortativity
 %           modularity - modularity
 %           struct_cons - structural consistency
