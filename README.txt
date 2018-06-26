@@ -29,7 +29,7 @@ request - cell array with the names of the required measures among:
           EBC - edge betweenness centrality
           BC - node betweenness centrality
           radiality - radiality
-          LCP_corr - Local Community Paradigm correlation
+          LCPcorr - Local Community Paradigm correlation
           assortativity - assortativity
           modularity - modularity
           struct_cons - structural consistency
