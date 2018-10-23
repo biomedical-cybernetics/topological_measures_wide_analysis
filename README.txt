@@ -39,7 +39,7 @@ request - cell array with the names of the required measures among:
           smallworld_sigma - small worldness sigma
           smallworld_omega_eff - small worldness omega (efficiency)
           smallworld_sigma_eff - small worldness sigma (efficiency)
-		  richclub_p - pvalue for rich-clubness
+          richclub_p - pvalue for rich-clubness
 
           NB: if the input is not provided or an empty array [] is given,
               all the measures are computed
