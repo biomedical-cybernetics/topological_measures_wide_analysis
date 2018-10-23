@@ -52,7 +52,7 @@ iters - structure containing for the stochastic measures
         iters.powerlaw_p = 1000;
         iters.x_rand = 10;
         iters.x_latt = 10;
-		iters.richclub_p = 1000;
+        iters.richclub_p = 1000;
 
 ### OUTPUT ###
 tm - structure array containing the topological measures.
