@@ -39,6 +39,7 @@ request - cell array with the names of the required measures among:
           smallworld_sigma - small worldness sigma
           smallworld_omega_eff - small worldness omega (efficiency)
           smallworld_sigma_eff - small worldness sigma (efficiency)
+		  richclub_p - pvalue for rich-clubness
 
           NB: if the input is not provided or an empty array [] is given,
               all the measures are computed
@@ -51,6 +52,7 @@ iters - structure containing for the stochastic measures
         iters.powerlaw_p = 1000;
         iters.x_rand = 10;
         iters.x_latt = 10;
+		iters.richclub_p = 1000;
 
 ### OUTPUT ###
 tm - structure array containing the topological measures.

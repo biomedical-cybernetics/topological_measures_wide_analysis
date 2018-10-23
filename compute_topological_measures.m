@@ -18,7 +18,7 @@ function tm = compute_topological_measures(x, request, iters)
 % please cite the proper reference if you use it.
 %
 % Released under MIT License
-% Copyright (c) 2017 A. Muscoloni, C. V. Cannistraci
+% Copyright (c) 2018 A. Muscoloni, C. V. Cannistraci
 
 %%% INPUT
 % x - adjacency matrix of the network
@@ -47,6 +47,7 @@ function tm = compute_topological_measures(x, request, iters)
 %           smallworld_sigma - small worldness sigma
 %           smallworld_omega_eff - small worldness omega (efficiency)
 %           smallworld_sigma_eff - small worldness sigma (efficiency)
+%           richclub_p - pvalue for rich-clubness
 %
 %           NB: if the input is not provided or an empty array [] is given,
 %               all the measures are computed
@@ -59,6 +60,7 @@ function tm = compute_topological_measures(x, request, iters)
 %         iters.powerlaw_p = 1000;
 %         iters.x_rand = 10;
 %         iters.x_latt = 10;
+%         iters.richclub_p = 1000;
 
 %%% OUTPUT
 % tm - structure array containing the topological measures.
@@ -73,13 +75,14 @@ validateattributes(x, {'numeric'}, {'square','finite','nonnegative'});
 x = x > 0;
 x = double(max(x,x'));
 x(speye(size(x))==1) = 0;
+x = sparse(x);
 
 measures_all = {'N', 'E', 'avgdeg', 'density', 'clustering', ...
     'char_path', 'efficiency_glob', 'efficiency_loc', 'closeness', ...
     'EBC', 'BC', 'radiality', 'LCPcorr', 'assortativity', ...
     'modularity', 'struct_cons', 'powerlaw_p', 'powerlaw_gamma', ...
     'smallworld_omega', 'smallworld_sigma', ...
-    'smallworld_omega_eff', 'smallworld_sigma_eff'};
+    'smallworld_omega_eff', 'smallworld_sigma_eff', 'richclub_p'};
 
 % check request
 if ~exist('request', 'var') || isempty(request)
@@ -124,6 +127,11 @@ if ~isfield(iters, 'x_latt')
 else
     validateattributes(iters.x_latt, {'numeric'}, {'scalar','integer','nonnegative'});
 end
+if ~isfield(iters, 'richclub_p')
+    iters.richclub_p = 1000;
+else
+    validateattributes(iters.richclub_p, {'numeric'}, {'scalar','integer','nonnegative'});
+end
 
 tm = struct();
 
@@ -131,7 +139,7 @@ for j = 1:length(request)
     
     % compute shortest paths
     if any(strcmp(request{j},{'char_path', 'efficiency_glob', 'efficiency_loc', 'closeness', 'radiality'})) && ~exist('dist','var')
-        dist = graphallshortestpaths(sparse(x), 'Directed', false);
+        dist = graphallshortestpaths(x, 'Directed', false);
     end
     
     % compute null models for random networks
@@ -289,6 +297,13 @@ for j = 1:length(request)
         case 'smallworld_sigma_eff'
             tm.smallworld_sigma_eff = compute_smallworld_sigma_eff(x, x_rand);
             
+        case 'richclub_p'
+            x_randCM = cell(iters.richclub_p,1);
+            for i = 1:iters.richclub_p
+                x_randCM{i} = randomize_network(x, 'CM');
+            end
+            tm.richclub_p = richclub_test(x, x_randCM);
+            clear x_randCM
     end
 end
 
@@ -1867,3 +1882,286 @@ Rrp = R;
 % reverse random permutation of nodes
 [~,ind_rp_reverse] = sort(ind_rp);
 Rlatt = Rrp(ind_rp_reverse,ind_rp_reverse);
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Rich-clubness p-value %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% code from:
+% https://github.com/biomedical-cybernetics/rich_club
+%
+% please cite:
+% Muscoloni, A. and Cannistraci, C.V. (2017)
+% "Rich-clubness test: how to determine whether a complex network
+% has or doesn't have a rich-club?". arXiv:1704.03526
+
+function [x, eff] = randomize_network(x, null_model, iters, max_rej)
+
+% References:
+% 1) Cannistraci-Muscoloni null-model
+%   Muscoloni, A. and Cannistraci, C.V. (2017)
+%   "Rich-clubness test: how to determine whether a complex network
+%    has or doesn't have a rich-club?". arXiv:1704.03526
+% 2) Maslov-Sneppen null-model
+%   Maslov, S. and Sneppen, K. (2002)
+%   "Specificity and Stability in Topology of Protein Networks". Science 296:910
+
+% Authors:
+% The code has been implemented by Alessandro Muscoloni (2017).
+
+% Released under MIT License
+% Copyright (c) 2017 A. Muscoloni, C. V. Cannistraci
+
+% It performs a randomization of the network in input preserving the node degrees.
+% The randomization consists of an iterative random reshuffle of link pairs.
+% At each iteration two links are randomly sampled (uniformly or nonuniformly,
+% according to the Maslov-Sneppen or Cannistraci-Muscoloni null-model respectively)
+% and one endpoint of the first is randomly exchanged with one endpoint of the second.
+% If the link that would be created already exists, the attempt is rejected.
+
+%%% INPUT %%%
+% x - adjacency matrix of the network, which must be symmetric, zero-diagonal, unweighted.
+%
+% null_model - null-model used for the randomization of the network, the alternatives are:
+%      'CM' -> (Cannistraci-Muscoloni) links sampled nonuniformly;
+%              one link according to probabilities proportional to the degree-product
+%              and one link with inverse probabilities.
+%      'MS' -> (Maslov-Sneppen) links sampled uniformly.
+%
+% iters - number of iterations of the randomization procedure;
+%         [optional] if not given or empty, it is set by default to 10*edges.
+%
+% max_rej - number of consecutive rejections that stops the procedure;
+%           [optional] if not given, it is set by default to Inf,
+%           to indicate that the procedure will not stop due to rejections.
+
+%%% OUTPUT %%%
+% x - adjacency matrix of the randomized network.
+%
+% eff - number of effective iterations, in case the procedure is stopped
+%       due to a maximum number of consecutive rejections.
+
+% Possible usage:
+% randomize_network(x, null_model)                  [default iters and max_rej]
+% randomize_network(x, null_model, iters)           [default max_rej]
+% randomize_network(x, null_model, [], max_rej)     [default iters]
+% randomize_network(x, null_model, iters, max_rej)
+
+% check input
+narginchk(2,4)
+validateattributes(x, {'numeric'}, {'square','binary'});
+if ~issymmetric(x)
+    error('The input matrix must be symmetric.')
+end
+if any(x(speye(size(x))==1))
+    error('The input matrix must be zero-diagonal.')
+end
+if strcmp(null_model,'CM')
+    nonuniform = 1;
+elseif strcmp(null_model,'MS')
+    nonuniform = 0;
+else
+    error('Possible null-models: ''CM'',''MS''.');
+end
+if ~exist('iters', 'var')
+    iters = [];
+elseif ~isempty(iters)
+    validateattributes(iters, {'numeric'}, {'scalar','integer','positive','finite'});
+end
+if ~exist('max_rej', 'var')
+    max_rej = Inf;
+elseif ~isinf(max_rej)
+    validateattributes(max_rej, {'numeric'}, {'scalar','integer','positive','finite'});
+end
+
+% initialization
+n = size(x,1);
+[i,j] = find(triu(x,1));
+E = length(i);
+eff = 0;
+rej = 0;
+if isempty(iters)
+    iters = 10*E;
+end
+
+if nonuniform
+    % compute weights
+    deg = full(sum(x,1));
+    degprod = repmat(deg,n,1) .* repmat(deg',1,n);
+    degprod(speye(size(degprod))==1) = 0;
+    degprod_rev = abs(degprod - min(degprod(triu(true(size(degprod)),1))) - max(degprod(triu(true(size(degprod)),1))));
+    degprod_rev(speye(size(degprod_rev))==1) = 0;
+    w1 = degprod(sub2ind(size(degprod),i,j));
+    w2 = degprod_rev(sub2ind(size(degprod_rev),i,j));
+end
+
+% randomization
+while eff < iters
+    
+    % stop if reached maximum number of consecutive rejections
+    if rej==max_rej
+        break;
+    end
+    
+    % random sample two different links
+    if nonuniform
+        % nonuniform probabilities
+        e1 = randsample(E,1,1,w1);
+        e2 = randsample(E,1,1,w2);
+        while e2==e1
+            e2 = randsample(E,1,1,w2);
+        end
+    else
+        % uniform probabilities
+        e1 = randi(E);
+        e2 = randi(E);
+        while e2==e1
+            e2 = randi(E);
+        end
+    end
+    a=i(e1); b=j(e1);
+    c=i(e2); d=j(e2);
+    
+    % all four nodes must be different
+    if a==c || a==d || b==c || b==d
+        rej = rej+1;
+        continue;
+    end
+    
+    % choose randomly between two alternatives
+    % 1) exchange b and d -> a-d, b-c
+    % 2) exchange b and c -> a-c, b-d
+    if rand > 0.5
+        if ~(x(a,d) || x(b,c))
+            x(a,b)=0; x(b,a)=0; x(c,d)=0; x(d,c)=0;
+            x(a,d)=1; x(d,a)=1; x(b,c)=1; x(c,b)=1;
+            j(e1)=d; j(e2)=b;
+        else
+            rej = rej+1;
+            continue;
+        end
+    else
+        if ~(x(a,c) || x(b,d))
+            x(a,b)=0; x(b,a)=0; x(c,d)=0; x(d,c)=0;
+            x(a,c)=1; x(c,a)=1; x(b,d)=1; x(d,b)=1;
+            j(e1)=c; i(e2)=b;
+        else
+            rej = rej+1;
+            continue;
+        end
+    end
+    
+    if nonuniform
+        % update weights
+        w1(e1) = degprod(i(e1),j(e1));
+        w2(e1) = degprod_rev(i(e1),j(e1));
+        w1(e2) = degprod(i(e2),j(e2));
+        w2(e2) = degprod_rev(i(e2),j(e2));
+    end
+    
+    eff = eff+1;
+    rej = 0;
+end
+
+function [pvalue, deg_peak, peak, peak_rand, richclub, richclub_rand_mean, richclub_normdiff, deg_uni] = richclub_test(x, x_rand)
+
+% Reference:
+% Muscoloni, A. and Cannistraci, C.V. (2017)
+% "Rich-clubness test: how to determine whether a complex network
+% has or doesn't have a rich-club?". arXiv:1704.03526
+
+% Authors:
+% The code has been implemented by Alessandro Muscoloni (2017).
+
+% Released under MIT License
+% Copyright (c) 2017 A. Muscoloni, C. V. Cannistraci
+
+% It performs the statistical test for rich-clubness giving in output a pvalue
+% that indicates whether the network contains a significant rich-club,
+% and a degree-cut that allows to extract the rich-club subnetwork.
+
+%%% INPUT %%%
+% x - adjacency matrix of the network, which must be symmetric, zero-diagonal, unweighted.
+%
+% x_rand - cell array whose elements are the adjacency matrices of the randomized networks.
+%          NB: it is recommended to input at least 1000 randomized networks.
+
+%%% OUTPUT %%%
+% pvalue - pvalue computed considering the peak of the normalized richclub coefficient
+%          for the input network with respect to the empirical distribution
+%          of the peaks in the randomized networks.
+% deg_peak - degree corresponding to the peak;
+%          if the pvalue is significant, the richclub subnetwork is
+%          composed of the nodes with degree greater than deg_peak.
+% peak - maximum value of the normalized richclub coefficient in the input network.
+% peak_rand - vector containing the peak for each randomized network.
+% richclub - vector containing for each degree value in the input network
+%          the richclub coefficient (the last degree value is not considered,
+%          since there are not nodes with degree greater than the maximum);
+%          if the last k-subnetwork is composed of one node, the richclub
+%          coefficient will be NaN.
+% richclub_rand_mean - vector containing for each degree value in the input network
+%          the mean richclub coefficient of the randomized networks.
+% richclub_normdiff - vector containing for each degree value in the input network
+%          the normalized richclub coefficient (the last degree value is not considered).
+% deg_uni - vector of unique degree values in increasing order.
+
+% check input
+narginchk(2,2)
+validateattributes(x, {'numeric'}, {'square','binary'});
+if ~issymmetric(x)
+    error('The input matrix must be symmetric.')
+end
+if any(x(speye(size(x))==1))
+    error('The input matrix must be zero-diagonal.')
+end
+validateattributes(x_rand, {'cell'}, {'vector'});
+
+% initialization
+deg = full(sum(x,1));
+deg_uni = unique(deg)';
+d = length(deg_uni);
+m = length(x_rand);
+richclub = zeros(d-1,1);
+richclub_rand_mean = zeros(d-1,1);
+richclub_normdiff = zeros(d-1,1);
+richclub_rand_normdiff = zeros(d-1,m);
+
+% for each degree value
+for j = 1:d-1
+    
+    k = deg_uni(j);
+    
+    % for each randomized network compute the richclub coefficient
+    % as the density of the subnetwork of nodes with degree greater than k
+    richclub_rand_k = zeros(m,1);
+    for i = 1:m
+        x_ik = x_rand{i}(deg>k,deg>k);
+        richclub_rand_k(i) = mean(x_ik(triu(true(size(x_ik)),1)));
+    end
+    
+    % normalization factor: mean richclub coefficient of the randomized networks
+    richclub_rand_mean(j) = mean(richclub_rand_k);
+    
+    % for each randomized network compute the normalized richclub coefficient
+    richclub_rand_normdiff(j,:) = richclub_rand_k - richclub_rand_mean(j);
+    
+    % compute the richclub and normalized richclub coefficients for the input network
+    x_k = x(deg>k,deg>k);
+    richclub(j) = mean(x_k(triu(true(size(x_k)),1)));
+    richclub_normdiff(j) = richclub(j) - richclub_rand_mean(j);
+    
+end
+
+% for each randomized network compute the peak of the normalized richclub coefficient
+peak_rand = max(richclub_rand_normdiff, [], 1);
+
+% compute the peak of the normalized richclub coefficient
+% and the corresponding degree for the input network
+[peak, deg_peak] = max(richclub_normdiff);
+deg_peak = deg_uni(deg_peak);
+
+% compute the pvalue for the peak
+pvalue = mean(peak_rand >= peak);
