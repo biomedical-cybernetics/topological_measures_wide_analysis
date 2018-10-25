@@ -1,4 +1,4 @@
-function tm = compute_topological_measures(x, request, iters)
+function tm = compute_topological_measures(x, request, par, iters)
 
 % code to perform a wide analysis on network topological measures.
 %
@@ -6,6 +6,7 @@ function tm = compute_topological_measures(x, request, iters)
 % - main code: Alessandro Muscoloni, 2017-05-12
 % - support functions: either implemented or taken from other sources,
 %   indicated at the beginning of the function.
+%   NB: some functions have been modified introducing the parallel computation
 %
 % Reference:
 % "Can local-community-paradigm and epitopological learning enhance
@@ -52,14 +53,16 @@ function tm = compute_topological_measures(x, request, iters)
 %           NB: if the input is not provided or an empty array [] is given,
 %               all the measures are computed
 %
+% par - 1 or 0 to indicate whether the function should use parallel computation or not.
+%       if the input is not provided, parallel computation is used
+%
 % iters - structure containing for the stochastic measures
 %         the number of iterations.
 %         if the input is not provided, the default values are:
 %         iters.modularity = 100;
 %         iters.struct_cons = 100;
 %         iters.powerlaw_p = 1000;
-%         iters.x_rand = 10;
-%         iters.x_latt = 10;
+%         iters.smallworld = 10;
 %         iters.richclub_p = 1000;
 
 %%% OUTPUT
@@ -68,7 +71,7 @@ function tm = compute_topological_measures(x, request, iters)
 %      in the input variable "request"
 %      NB: if a single measure is requested, the output is directly its value
 
-narginchk(1,3);
+narginchk(1,4);
 
 % check input matrix and make it unweighted, undirected and zero-diagonal
 validateattributes(x, {'numeric'}, {'square','finite','nonnegative'});
@@ -96,6 +99,16 @@ else
     end
 end
 
+% check parallel computation
+if ~exist('par', 'var')
+    par = Inf;
+else
+    validateattributes(par, {'numeric'}, {'scalar','binary'});
+    if par == 1
+        par = Inf;
+    end
+end
+
 % check iters
 if ~exist('iters', 'var')
     iters = struct();
@@ -117,15 +130,10 @@ if ~isfield(iters, 'powerlaw_p')
 else
     validateattributes(iters.powerlaw_p, {'numeric'}, {'scalar','integer','nonnegative'});
 end
-if ~isfield(iters, 'x_rand')
-    iters.x_rand = 10;
+if ~isfield(iters, 'smallworld')
+    iters.smallworld = 10;
 else
-    validateattributes(iters.x_rand, {'numeric'}, {'scalar','integer','nonnegative'});
-end
-if ~isfield(iters, 'x_latt')
-    iters.x_latt = 10;
-else
-    validateattributes(iters.x_latt, {'numeric'}, {'scalar','integer','nonnegative'});
+    validateattributes(iters.smallworld, {'numeric'}, {'scalar','integer','nonnegative'});
 end
 if ~isfield(iters, 'richclub_p')
     iters.richclub_p = 1000;
@@ -145,8 +153,8 @@ for j = 1:length(request)
     % compute null models for random networks
     if any(strcmp(request{j},{'smallworld_omega', 'smallworld_sigma', 'smallworld_omega_eff', 'smallworld_sigma_eff'})) ...
             && ~exist('x_rand','var')
-        x_rand = cell(iters.x_rand,1);
-        for i = 1:iters.x_rand
+        x_rand = cell(iters.smallworld,1);
+        parfor (i = 1:iters.smallworld, par)
             x_rand{i} = randmio_und(x, 10);
         end
     end
@@ -154,8 +162,8 @@ for j = 1:length(request)
     % compute null models for lattice networks
     if any(strcmp(request{j},{'smallworld_omega', 'smallworld_omega_eff'})) ...
             && ~exist('x_latt','var')
-        x_latt = cell(iters.x_latt,1);
-        for i = 1:iters.x_latt
+        x_latt = cell(iters.smallworld,1);
+        parfor (i = 1:iters.smallworld, par)
             x_latt{i} = latmio_und(x, 10);
         end
     end
@@ -175,14 +183,14 @@ for j = 1:length(request)
             tm.density = mean(x(triu(true(size(x)),1)));
             
         case 'clustering'
-            tm.clustering = mean(clustering_coef_bu(x));
+            tm.clustering = mean(clustering_coef_bu(x, par));
             
         case 'char_path'
             tm.char_path = mean(dist(~isinf(dist) & dist>0));
             
         case 'efficiency_glob'
             if ~isfield(tm, 'efficiency_glob')
-                [tm.efficiency_glob, efficiency_loc] = compute_efficiency(x, dist);
+                [tm.efficiency_glob, efficiency_loc] = compute_efficiency(x, dist, par);
                 if any(strcmp('efficiency_loc', request))
                     tm.efficiency_loc = efficiency_loc; clear efficiency_loc;
                 end
@@ -190,7 +198,7 @@ for j = 1:length(request)
             
         case 'efficiency_loc'
             if ~isfield(tm, 'efficiency_loc')
-                [efficiency_glob, tm.efficiency_loc] = compute_efficiency(x, dist);
+                [efficiency_glob, tm.efficiency_loc] = compute_efficiency(x, dist, par);
                 if any(strcmp('efficiency_glob', request))
                     tm.efficiency_glob = efficiency_glob; clear efficiency_glob;
                 end
@@ -221,36 +229,36 @@ for j = 1:length(request)
             tm.radiality = mean(compute_radiality(dist));
             
         case 'LCPcorr'
-            tm.LCPcorr = LCPcorr_and_LCDP(x,0);
+            tm.LCPcorr = LCPcorr_and_LCDP(x,isinf(par));
             
         case 'assortativity'
             tm.assortativity = compute_assortativity(x);
             
         case 'modularity'
-            tm.modularity = zeros(iters.modularity,1);
-            for i = 1:iters.modularity
+            modularity_iters = zeros(iters.modularity,1);
+            parfor (i = 1:iters.modularity, par)
                 try
-                    [~, tm.modularity(i)] = modularity_und(full(x));
+                    [~, modularity_iters(i)] = modularity_und(full(x));
                 catch
                     % the try-catch statement is needed to avoid the error:
                     % 'EIG did not converge' (it could occur for some iterations)
-                    tm.modularity(i) = NaN;
+                    modularity_iters(i) = NaN;
                 end
             end
-            tm.modularity = nanmean(tm.modularity);
+            tm.modularity = nanmean(modularity_iters); clear modularity_iters;
             
         case 'struct_cons'
-            tm.struct_cons = zeros(iters.struct_cons,1);
-            for i = 1:iters.struct_cons
+            struct_cons_iters = zeros(iters.struct_cons,1);
+            parfor (i = 1:iters.struct_cons, par)
                 try
-                    tm.struct_cons(i) = avg_structCons_carlo(double(x), 1);
+                    struct_cons_iters(i) = avg_structCons_carlo(x, 1);
                 catch
                     % the try-catch statement is needed to avoid the error:
                     % 'EIG did not converge' (it could occur for some iterations)
-                    tm.struct_cons(i) = NaN;
+                    struct_cons_iters(i) = NaN;
                 end
             end
-            tm.struct_cons = nanmean(tm.struct_cons);
+            tm.struct_cons = nanmean(struct_cons_iters); clear struct_cons_iters;
             
         case 'powerlaw_p'
             if ~isfield(tm, 'powerlaw_p')
@@ -286,23 +294,23 @@ for j = 1:length(request)
             end
             
         case 'smallworld_omega'
-            tm.smallworld_omega = compute_smallworld_omega(x, x_rand, x_latt);
+            tm.smallworld_omega = compute_smallworld_omega(x, x_rand, x_latt, par);
             
         case 'smallworld_sigma'
-            tm.smallworld_sigma = compute_smallworld_sigma(x, x_rand);
+            tm.smallworld_sigma = compute_smallworld_sigma(x, x_rand, par);
             
         case 'smallworld_omega_eff'
-            tm.smallworld_omega_eff = compute_smallworld_omega_eff(x, x_rand, x_latt);
+            tm.smallworld_omega_eff = compute_smallworld_omega_eff(x, x_rand, x_latt, par);
             
         case 'smallworld_sigma_eff'
-            tm.smallworld_sigma_eff = compute_smallworld_sigma_eff(x, x_rand);
+            tm.smallworld_sigma_eff = compute_smallworld_sigma_eff(x, x_rand, par);
             
         case 'richclub_p'
             x_randCM = cell(iters.richclub_p,1);
-            for i = 1:iters.richclub_p
+            parfor (i = 1:iters.richclub_p, par)
                 x_randCM{i} = randomize_network(x, 'CM');
             end
-            tm.richclub_p = richclub_test(x, x_randCM);
+            tm.richclub_p = richclub_test(x, x_randCM, par);
             clear x_randCM
     end
 end
@@ -327,7 +335,7 @@ end
 % Complex network measures of brain connectivity: Uses and interpretations.
 % Rubinov M, Sporns O (2010) NeuroImage 52:1059-69.
 
-function C=clustering_coef_bu(G)
+function C=clustering_coef_bu(G, par)
 %CLUSTERING_COEF_BU     Clustering coefficient
 %
 %   C = clustering_coef_bu(A);
@@ -344,10 +352,14 @@ function C=clustering_coef_bu(G)
 %
 %   Mika Rubinov, UNSW, 2007-2010
 
+if ~exist('par','var')
+    par = 0;
+end
+
 n=length(G);
 C=zeros(n,1);
 
-for u=1:n
+parfor (u=1:n, par)
     V=find(G(u,:));
     k=length(V);
     if k>=2;                %degree must be at least 2
@@ -369,7 +381,7 @@ end
 % Vito Latora and Massimo Marchiori (2001)
 % Phys. Rev. Lett. 87, 198701
 
-function [eff_glob, eff_loc] = compute_efficiency(x, dist)
+function [eff_glob, eff_loc] = compute_efficiency(x, dist, par)
 
 %%% INPUT %%%
 % x - adjacency matrix (unweighted and undirected)
@@ -382,11 +394,14 @@ function [eff_glob, eff_loc] = compute_efficiency(x, dist)
 if ~exist('dist','var')
     dist = graphallshortestpaths(sparse(x), 'Directed', false);
 end
-    
+if ~exist('par','var')
+    par = 0;
+end
+
 eff_glob = mean(1 ./ dist(dist>0));
 
 eff_loc = zeros(length(x),1);
-for i = 1:length(x)
+parfor (i = 1:length(x), par)
     neigh = logical(x(i,:));
     subx = x(neigh,neigh);
     if length(subx) > 1
@@ -1620,28 +1635,28 @@ end
 % sigma (range from 0 to infinity)
 % considered small-world for sigma>1
 
-function omega = compute_smallworld_omega(x, x_rand, x_latt)
+function omega = compute_smallworld_omega(x, x_rand, x_latt, par)
 
 dist = graphallshortestpaths(x, 'Directed', false);
 L = mean(dist(~isinf(dist) & dist>0));
 C = mean(clustering_coef_bu(x));
 
 L_r = zeros(size(x_rand));
-for i = 1:length(L_r)
+parfor (i = 1:length(L_r), par)
     dist = graphallshortestpaths(x_rand{i}, 'Directed', false);
     L_r(i) = mean(dist(~isinf(dist) & dist>0));
 end
 L_r = mean(L_r);
 
 C_l = zeros(size(x_latt));
-for i = 1:length(C_l)
+parfor (i = 1:length(C_l), par)
     C_l(i) = mean(clustering_coef_bu(x_latt{i}));
 end
 C_l = mean(C_l);
 
 omega = (L_r/L) - (C/C_l);
 
-function sigma = compute_smallworld_sigma(x, x_rand)
+function sigma = compute_smallworld_sigma(x, x_rand, par)
 
 dist = graphallshortestpaths(x, 'Directed', false);
 L = mean(dist(~isinf(dist) & dist>0));
@@ -1649,7 +1664,7 @@ C = mean(clustering_coef_bu(x));
 
 L_r = zeros(size(x_rand));
 C_r = zeros(size(x_rand));
-for i = 1:length(L_r)
+parfor (i = 1:length(L_r), par)
     dist = graphallshortestpaths(x_rand{i}, 'Directed', false);
     L_r(i) = mean(dist(~isinf(dist) & dist>0));
     C_r(i) = mean(clustering_coef_bu(x_rand{i}));
@@ -1659,31 +1674,31 @@ L_r = mean(L_r);
 
 sigma = (C/C_r) / (L/L_r);
 
-function omega_eff = compute_smallworld_omega_eff(x, x_rand, x_latt)
+function omega_eff = compute_smallworld_omega_eff(x, x_rand, x_latt, par)
 
 [eff_glob, eff_loc] = compute_efficiency(x);
 
 eff_glob_r = zeros(size(x_rand));
-for i = 1:length(eff_glob_r)
+parfor (i = 1:length(eff_glob_r), par)
     [eff_glob_r(i), ~] = compute_efficiency(x_rand{i});
 end
 eff_glob_r = mean(eff_glob_r);
 
 eff_loc_l = zeros(size(x_latt));
-for i = 1:length(eff_loc_l)
+parfor (i = 1:length(eff_loc_l), par)
     [~, eff_loc_l(i)] = compute_efficiency(x_latt{i});
 end
 eff_loc_l = mean(eff_loc_l);
 
 omega_eff = (eff_glob_r/eff_glob) - (eff_loc/eff_loc_l);
 
-function sigma_eff = compute_smallworld_sigma_eff(x, x_rand)
+function sigma_eff = compute_smallworld_sigma_eff(x, x_rand, par)
 
 [eff_glob, eff_loc] = compute_efficiency(x);
 
 eff_glob_r = zeros(size(x_rand));
 eff_loc_r = zeros(size(x_rand));
-for i = 1:length(eff_glob_r)
+parfor (i = 1:length(eff_glob_r), par)
     [eff_glob_r(i), eff_loc_r(i)] = compute_efficiency(x_rand{i});
 end
 eff_glob_r = mean(eff_glob_r);
@@ -2065,7 +2080,7 @@ while eff < iters
     rej = 0;
 end
 
-function [pvalue, deg_peak, peak, peak_rand, richclub, richclub_rand_mean, richclub_normdiff, deg_uni] = richclub_test(x, x_rand)
+function [pvalue, deg_peak, peak, peak_rand, richclub, richclub_rand_mean, richclub_normdiff, deg_uni] = richclub_test(x, x_rand, par)
 
 % Reference:
 % Muscoloni, A. and Cannistraci, C.V. (2017)
@@ -2087,6 +2102,9 @@ function [pvalue, deg_peak, peak, peak_rand, richclub, richclub_rand_mean, richc
 %
 % x_rand - cell array whose elements are the adjacency matrices of the randomized networks.
 %          NB: it is recommended to input at least 1000 randomized networks.
+%
+% par - 1 or 0 to indicate whether the function should use parallel computation or not.
+%       if the input is not provided, parallel computation is used
 
 %%% OUTPUT %%%
 % pvalue - pvalue computed considering the peak of the normalized richclub coefficient
@@ -2109,7 +2127,7 @@ function [pvalue, deg_peak, peak, peak_rand, richclub, richclub_rand_mean, richc
 % deg_uni - vector of unique degree values in increasing order.
 
 % check input
-narginchk(2,2)
+narginchk(2,3)
 validateattributes(x, {'numeric'}, {'square','binary'});
 if ~issymmetric(x)
     error('The input matrix must be symmetric.')
@@ -2118,6 +2136,9 @@ if any(x(speye(size(x))==1))
     error('The input matrix must be zero-diagonal.')
 end
 validateattributes(x_rand, {'cell'}, {'vector'});
+if ~exist('par','var')
+    par = 0;
+end
 
 % initialization
 deg = full(sum(x,1));
@@ -2130,7 +2151,7 @@ richclub_normdiff = zeros(d-1,1);
 richclub_rand_normdiff = zeros(d-1,m);
 
 % for each degree value
-for j = 1:d-1
+parfor (j = 1:d-1, par)
     
     k = deg_uni(j);
     

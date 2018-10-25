@@ -44,14 +44,16 @@ request - cell array with the names of the required measures among:
           NB: if the input is not provided or an empty array [] is given,
               all the measures are computed
 
+par - 1 or 0 to indicate whether the function should use parallel computation or not.
+      if the input is not provided, parallel computation is used
+			  
 iters - structure containing for the stochastic measures
         the number of iterations.
         if the input is not provided, the default values are:
         iters.modularity = 100;
         iters.struct_cons = 100;
         iters.powerlaw_p = 1000;
-        iters.x_rand = 10;
-        iters.x_latt = 10;
+        iters.smallworld = 10;
         iters.richclub_p = 1000;
 
 ### OUTPUT ###
